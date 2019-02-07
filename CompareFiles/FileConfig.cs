@@ -6,11 +6,11 @@ namespace CompareFiles
 {
     public sealed class FileConfig
     {     
-        public IEnumerable<FileProbs> SourceFiles { get; set; }
-        public IEnumerable<FileProbs> TargetFiles { get; set; }
-        public sealed class FileProbs
+        public IEnumerable<FileProperties> Files { get; set; }
+        public sealed class FileProperties
         {
-            public string FileName { get; set; }
+            public string SourceFileName { get; set; }
+            public string TargetFileName { get; set; }
         }
     }
 }
