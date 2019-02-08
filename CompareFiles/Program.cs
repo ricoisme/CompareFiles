@@ -6,12 +6,16 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace CompareFiles
 {
     static class Program
     {
+        private static IConfigurationMonitor _configurationMonitor;
+        private static ConfigurationReloadToken _changeToken = new ConfigurationReloadToken();
+
         static void Main(string[] args)
         {
            CreateHostBuildAsync(args).GetAwaiter().GetResult();
@@ -36,26 +40,35 @@ namespace CompareFiles
                .Build();
             var serviceProvider = new ServiceCollection()
                 .SetupServiceCollection(configuration.GetSection("FileConfig"))
+                .AddConfigurationMonitor(configuration, InvokeConfigChanged)
                 .BuildServiceProvider();
             var fileConfig = serviceProvider.GetService<IOptions<FileConfig>>().Value;
-            
+            _configurationMonitor = serviceProvider.GetService<IConfigurationMonitor>();
+            _configurationMonitor.ConfigSectionHash = string.Join(',', fileConfig.Files).ComputeHash();
+
+
+            return Process(fileConfig);
+        }
+
+        private static Task Process(FileConfig fileConfig)
+        {
             fileConfig?.Files.ToList().ForEach(x =>
             {
-                if(!File.Exists(x.SourceFileName))
+                if (!File.Exists(x.SourceFileName))
                 {
                     throw new ApplicationException($"{x.SourceFileName} did not exists");
                 }
             });
             fileConfig?.Files.ToList()
-                .ForEach( async x =>
+                .ForEach(async x =>
                 {
-                    if(!File.Exists(x.TargetFileName))
+                    if (!File.Exists(x.TargetFileName))
                     {
-                       await File.WriteAllTextAsync(x.TargetFileName, "", Encoding.UTF8)
-                        .ConfigureAwait(false);
-                       Console.WriteLine($"{x.TargetFileName} is created.");
+                        await File.WriteAllTextAsync(x.TargetFileName, "", Encoding.UTF8)
+                         .ConfigureAwait(false);
+                        Console.WriteLine($"{x.TargetFileName} is created.");
                     }
-                    if(File.Exists(x.SourceFileName) && File.Exists(x.TargetFileName))
+                    if (File.Exists(x.SourceFileName) && File.Exists(x.TargetFileName))
                     {
                         var changeTotals = 0;
                         var sb = new StringBuilder();
@@ -95,6 +108,23 @@ namespace CompareFiles
                 });
             return Task.FromResult(0);
         }
+
+        private static void InvokeConfigChanged(IConfiguration configure)
+        {
+            const string sectionNmae = "FileConfig";
+            var fileConfig = configure.GetSection(sectionNmae).Get<FileConfig>();
+            var configSectionHash = string.Join(',', fileConfig.Files).ComputeHash();          
+            if (!_configurationMonitor.ConfigSectionHash.SequenceEqual(configSectionHash))
+            {
+                _configurationMonitor.ConfigSectionHash = configSectionHash;
+                //compare process again
+                Process(fileConfig).GetAwaiter().GetResult();
+                var message = $"State updated at {DateTime.UtcNow}";
+                Console.WriteLine($"appsetting.json file changed. {message}");
+            }
+            var previousToken = Interlocked.Exchange(ref _changeToken, new ConfigurationReloadToken());
+            previousToken.OnReload();
+        }
     }
 
     public static class ServiceCollectionExtensions
@@ -107,6 +137,14 @@ namespace CompareFiles
             {
                 configure.AddDebug();
             });
+            return services;
+        }
+
+        public static IServiceCollection AddConfigurationMonitor(this IServiceCollection services, IConfiguration config, Action<IConfiguration> InvokeChanged)
+        {
+            services.AddOptions();
+            services.AddSingleton<IConfigurationMonitor, ConfigurationMonitor>
+                (provider => new ConfigurationMonitor(config, InvokeChanged));
             return services;
         }
     }
