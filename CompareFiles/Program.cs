@@ -52,60 +52,60 @@ namespace CompareFiles
 
         private static Task Process(FileConfig fileConfig)
         {
-            fileConfig?.Files.ToList().ForEach(x =>
+            fileConfig?.Files.ToList().ForEach(async x =>
             {
                 if (!File.Exists(x.SourceFileName))
                 {
-                    throw new ApplicationException($"{x.SourceFileName} did not exists");
+                    Console.WriteLine($"{x.SourceFileName} did not exists");
+                    return;
                 }
-            });
-            fileConfig?.Files.ToList()
-                .ForEach(async x =>
+
+                if (!File.Exists(x.TargetFileName))
                 {
-                    if (!File.Exists(x.TargetFileName))
+                    await File.WriteAllTextAsync(x.TargetFileName, "", Encoding.UTF8)
+                     .ConfigureAwait(false);
+                    Console.WriteLine($"{x.TargetFileName} is created.");
+                }
+
+                if (File.Exists(x.SourceFileName) && File.Exists(x.TargetFileName))
+                {
+                    var changeTotals = 0;
+                    var sb = new StringBuilder();
+                    using (var fs = new FileStream(x.SourceFileName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                     {
-                        await File.WriteAllTextAsync(x.TargetFileName, "", Encoding.UTF8)
-                         .ConfigureAwait(false);
-                        Console.WriteLine($"{x.TargetFileName} is created.");
-                    }
-                    if (File.Exists(x.SourceFileName) && File.Exists(x.TargetFileName))
-                    {
-                        var changeTotals = 0;
-                        var sb = new StringBuilder();
-                        using (var fs = new FileStream(x.SourceFileName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                        using (var srcReader = new StreamReader(fs))
                         {
-                            using (var srcReader = new StreamReader(fs))
+                            Console.WriteLine($"{x.SourceFileName} start reading..");
+                            using (var tarReader = new StreamReader(x.TargetFileName))
                             {
-                                Console.WriteLine($"{x.SourceFileName} start reading..");
-                                using (var tarReader = new StreamReader(x.TargetFileName))
+                                while (true)
                                 {
-                                    while (true)
+                                    if (srcReader.EndOfStream)
+                                        break;
+                                    var srcReaderTxt = srcReader.ReadLine();
+                                    var tarReaderTxt = tarReader.ReadLine();
+                                    if (!srcReaderTxt.Equals(tarReaderTxt))
                                     {
-                                        if (srcReader.EndOfStream)
-                                            break;
-                                        var srcReaderTxt = srcReader.ReadLine();
-                                        var tarReaderTxt = tarReader.ReadLine();
-                                        if (!srcReaderTxt.Equals(tarReaderTxt))
-                                        {
-                                            sb.AppendLine(srcReaderTxt);
-                                            changeTotals++;
-                                        }
+                                        sb.AppendLine(srcReaderTxt);
+                                        changeTotals++;
                                     }
                                 }
-                                Console.WriteLine($"{x.SourceFileName} read ended. different:{changeTotals}");
                             }
-                        }
-                        if (sb.ToString().Length > 0)
-                        {
-                            await File.AppendAllTextAsync(x.TargetFileName, sb.ToString(), Encoding.UTF8);
-                            Console.WriteLine($"{x.TargetFileName} different content append done.");
-                        }
-                        else
-                        {
-                            Console.WriteLine($"{x.TargetFileName} no changed.");
+                            Console.WriteLine($"{x.SourceFileName} read ended. different:{changeTotals}");
                         }
                     }
-                });
+                    if (sb.ToString().Length > 0)
+                    {
+                        await File.AppendAllTextAsync(x.TargetFileName, sb.ToString(), Encoding.UTF8);
+                        Console.WriteLine($"{x.TargetFileName} different content append done.");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"{x.TargetFileName} no changed.");
+                    }
+                }
+            });
+          
             return Task.FromResult(0);
         }
 
